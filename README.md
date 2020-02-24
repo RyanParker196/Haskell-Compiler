@@ -1,4 +1,4 @@
-# CS202 Assignment Code
+# Haskell Compiler
 
 ## Setting up Haskell and Stack
 
@@ -74,12 +74,3 @@ stack runghc RunTests.hs
 
 This process allows you to quickly verify that all of the test cases
 pass, but does not print out the output of each compiler pass.
-
-## Assignment Submission
-
-This repository contains the skeleton of each assignment's
-solution. The only file you will need to change is `Compiler.hs`. When
-you submit your assignment solution on Blackboard, you should upload
-*only* the `Compiler.hs` file. Please do not change any other files; I
-won't have access to changes you make to other files when grading your
-assignments.
