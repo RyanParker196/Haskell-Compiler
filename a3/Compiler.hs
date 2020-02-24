@@ -213,7 +213,7 @@ siTail e = case e of
 -- output: a set of variables mentioned in the arg
 varsArg :: X86Arg -> Set Variable
 varsArg e = case e of
-  VarXE x -> (:)
+  VarXE x -> undefined
 
 -- Liveness analysis, for an instruction
 -- inputs:
@@ -467,11 +467,18 @@ align n alignment = case n `mod` alignment of
 
 -- The printX86 pass for x86 "args"
 printX86Arg :: X86Arg -> String
-printX86Arg e = undefined
+printX86Arg e = case e of
+  VarXE s -> "%%" ++ s
+  RegE r -> "%" ++ r
+  IntXE i -> "$" ++ show i
+  DerefE r i -> show i ++ "(%" ++ r ++ ")"
 
 -- The printX86 pass for x86 instructions
 printX86Instr :: X86Instr -> String
-printX86Instr e = undefined
+printX86Instr e =case e of
+  MovqE a1 a2 -> " movq " ++ printX86Arg a1 ++ ", " ++ printX86Arg a2
+  AddqE a1 a2 -> " addq " ++ printX86Arg a1 ++ ", " ++ printX86Arg a2
+  RetqE -> " jmp " ++ printFun "conclusion"
 
 -- The printX86 pass for x86 programs
 -- Input: a pair
@@ -479,7 +486,23 @@ printX86Instr e = undefined
 --   - the number of stack locations used in the program
 -- Output: x86 assembly, as a string
 printX86 :: ([X86Instr], Int) -> String
-printX86 (ss, numHomes) = undefined
+printX86 (ss, numHomes) =
+  let stackSize = align (8 * numHomes) 16 in
+  " .globl " ++ (printFun "main") ++ "\n" ++
+  (printFun "main") ++ ":\n" ++
+  " pushq %rbp\n" ++
+  " movq %rsp, %rbp\n" ++
+  " subq $" ++ (show stackSize) ++ ", %rsp\n" ++
+  " jmp " ++ (printFun "start") ++ "\n" ++
+  (printFun "start") ++ ":\n" ++
+  (intercalate "\n" $ map printX86Instr ss) ++ "\n" ++
+  (printFun "conclusion") ++ ":\n" ++
+  " movq %rax, %rdi\n" ++
+  " callq " ++ (printFun "print_int") ++ "\n" ++
+  " movq $0, %rax\n" ++
+  " addq $" ++ (show stackSize) ++ ", %rsp\n" ++
+  " popq %rbp\n" ++
+  " retq\n"
 
 ------------------------------------------------------------
 -- compile / main
@@ -512,6 +535,3 @@ compileLog e =
   (logOutput "allocateRegisters" allocateRegisters) >>=
   (logOutput "patchInstructions" patchInstructions) >>=
   (logOutput "printX86" printX86)
-
-
-
