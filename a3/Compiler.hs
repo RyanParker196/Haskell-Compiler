@@ -551,19 +551,19 @@ printX86Instr e =case e of
 printX86 :: ([X86Instr], Int) -> String
 printX86 (ss, numHomes) =
   let stackSize = align (8 * numHomes) 16 in
-  " .globl " ++ (printFun "main") ++ "\n" ++
-  (printFun "main") ++ ":\n" ++
+  " .globl " ++ printFun "main" ++ "\n" ++
+  printFun "main" ++ ":\n" ++
   " pushq %rbp\n" ++
   " movq %rsp, %rbp\n" ++
-  " subq $" ++ (show stackSize) ++ ", %rsp\n" ++
-  " jmp " ++ (printFun "start") ++ "\n" ++
-  (printFun "start") ++ ":\n" ++
-  (intercalate "\n" $ map printX86Instr ss) ++ "\n" ++
-  (printFun "conclusion") ++ ":\n" ++
+  " subq $" ++ show stackSize ++ ", %rsp\n" ++
+  " jmp " ++ printFun "start" ++ "\n" ++
+  printFun "start" ++ ":\n" ++
+  intercalate "\n" $ map printX86Instr ss ++ "\n" ++
+  printFun "conclusion" ++ ":\n" ++
   " movq %rax, %rdi\n" ++
-  " callq " ++ (printFun "print_int") ++ "\n" ++
+  " callq " ++ printFun "print_int" ++ "\n" ++
   " movq $0, %rax\n" ++
-  " addq $" ++ (show stackSize) ++ ", %rsp\n" ++
+  " addq $" ++ show stackSize ++ ", %rsp\n" ++
   " popq %rbp\n" ++
   " retq\n"
 
@@ -588,8 +588,8 @@ logOutput name f = \ x -> do
 
 compileLog :: R1Expr -> IO String
 compileLog e =
-  (logOutput "input" id) e >>=
-  (logOutput "uniquify" uniquify) >>=
+  logOutput "input" id e >>=
+  logOutput "uniquify" uniquify >>=
   (logOutput "rcoExp" rcoExp) >>=
   (logOutput "ecTail" ecTail) >>=
   (logOutput "siTail" siTail) >>=
