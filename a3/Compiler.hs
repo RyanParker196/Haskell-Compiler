@@ -93,7 +93,7 @@ rcoArg e = case e of
   PlusE e1 e2 ->
     let (v1, b1) = rcoArg e1
         (v2, b2) = rcoArg e2
-        x' = Gensym "tmp"
+        x' = gensym "tmp"
         b' = (x', PlusE v1 v2)
     in (VarE x', b1 ++ b2 ++ [b'])
   LetE x e1 e2 -> 
@@ -213,7 +213,8 @@ siTail e = case e of
 -- output: a set of variables mentioned in the arg
 varsArg :: X86Arg -> Set Variable
 varsArg e = case e of
-  VarXE x -> undefined
+  VarXE x -> Set.singleton x
+  _ -> Set.empty
 
 -- Liveness analysis, for an instruction
 -- inputs:
@@ -221,7 +222,10 @@ varsArg e = case e of
 --   - prevLiveAfter: the set of live-after variables for *this* instruction (e)
 -- output: the set of live-after variables for the *previous* instruction in the program
 ulInstr :: X86Instr -> Set Variable -> Set Variable
-ulInstr e lAfter = undefined
+ulInstr e lAfter = case e of
+  MovqE a1 a2 -> Set.union (varsArg a2) (varsArg a2)
+  AddqE a1 a2 -> Set.union (varsArg a2) (varsArg a2)
+  RetqE -> Set.empty
 
 -- Liveness analysis, for multiple instructions
 -- input:  a list of instructions
@@ -269,7 +273,29 @@ addEdges g d (v : vs) =
 -- output:
 --  - a new interference graph
 biInstr :: (X86Instr, Set Variable) -> Graph Variable -> Graph Variable
-biInstr (instr, liveAfter) g = undefined
+biInstr (instr, liveAfter) g = case instr of
+  MovqE a1 a2 -> case (a1 ,a2) of
+    (VarXE s, VarXE d) -> 
+        if Set.member s liveAfter || Set.member d liveAfter 
+        then g 
+        else addEdges g d (Set.toList liveAfter)
+    (_, VarXE d) ->
+        if Set.member d liveAfter 
+        then g 
+        else addEdges g d (Set.toList liveAfter)
+    (_, _) -> g
+  AddqE a1 a2 -> case (a1, a2) of
+    (VarXE s, VarXE d) ->
+        if Set.member d liveAfter 
+        then g 
+        else addEdges g d (Set.toList liveAfter)
+    (_, VarXE d) ->
+        if Set.member d liveAfter 
+        then g 
+        else addEdges g d (Set.toList liveAfter)
+    (_, _) -> g
+  RetqE -> g
+ 
 
 -- build-interference, for a list of instructions
 -- input:  a list of pairs, each one containing an instruction and live-after set
@@ -358,9 +384,22 @@ maxSat xs cs g =
 --  - the current coloring (cs)
 -- output:
 --  - the new coloring
+
+--pickColor :: Saturation -> Color
+--maxSat :: [Variable] -> Coloring -> Graph Variable -> Variable
+--getSaturation :: Variable -> Coloring -> Graph Variable -> Saturation
+
+--type Coloring = Map Variable Color
+--type Saturation = Set Color
+
 colorGraph :: [Variable] -> Graph Variable -> Coloring -> Coloring
 colorGraph [] g cs = cs
-colorGraph xs g cs = undefined
+colorGraph xs g cs = let x = maxSat xs cs g
+                         sat = getSaturation x cs g
+                         avalColors = pickColor sat
+                     in colorGraph xs g $ Map.insert x avalColors cs
+                   
+
 
 -- get the variables used in a program
 -- input: a list of instructions
@@ -381,6 +420,10 @@ registerArgs = map RegE (callerSavedRegisters ++ calleeSavedRegisters)
 mkStackColor :: (Int, Int) -> (Int, X86Arg)
 mkStackColor (color, i) = (color, DerefE "rbp" (-8 * (i + 1)))
 
+findArgs :: Color -> [(Color, X86Arg)] -> X86Arg
+findArgs c locs = case locs of
+  ((c1 , a1) : ls) -> if c1 == c then a1 else findArgs c ls
+  [] -> Prelude.error "error finding args"
 -- given a coloring, a map from colors to their locations (on the stack or in a register),
 -- and a variable, return the assigned location for that variable
 -- input:
@@ -389,7 +432,13 @@ mkStackColor (color, i) = (color, DerefE "rbp" (-8 * (i + 1)))
 --  - a variable (x)
 -- output: the location for the variable "x"
 getHome :: Coloring -> [(Color, X86Arg)] -> Variable -> (Variable, X86Arg)
-getHome cs locs x = undefined
+getHome cs locs x = let color = fromJust $ Map.lookup x cs
+                        arg86 = findArgs color locs
+                    in (x , arg86)
+
+--type Color = Int
+--type Coloring = Map Variable Color
+--type Saturation = Set Color
 
 -- the allocate-registers pass
 -- input:  a pair, containing an interference graph and list of pseudo-x86 instructions
@@ -410,10 +459,17 @@ allocateRegisters (g, instrs) =
 
 -- copied from assign-homes
 ahInstr :: [(String, X86Arg)] -> X86Instr -> X86Instr
-ahInstr homes e = undefined
+ahInstr homes e = case e of
+  MovqE a1 a2 -> MovqE (ahArg homes a1) (ahArg homes a2)
+  AddqE a1 a2 -> AddqE (ahArg homes a1) (ahArg homes a2)
+  RetqE -> RetqE
   
-ahArg :: [(String, X86Arg)] -> X86Arg -> X86Arg
-ahArg homes e = undefined
+ahArg :: [(Variable, X86Arg)] -> X86Arg -> X86Arg
+ahArg homes e = case e of
+  VarXE s -> fromJust (lookup s homes)
+  RegE _ -> e
+  IntXE _ -> e
+
 
 
 ------------------------------------------------------------
@@ -440,7 +496,14 @@ patchInstructions (ss, numHomes) =
 --   - the number of stack locations used
 -- Patched instructions contain at most one memory access in each `movq` or `addq` instruction
 piInstr :: X86Instr -> [X86Instr]
-piInstr e = undefined
+piInstr e = case e of
+  MovqE (DerefE r1 i1) (DerefE r2 i2) -> [ MovqE (DerefE r1 i1) (RegE "rax")
+                                         , MovqE (RegE "rax") (DerefE r2 i2) ]
+  MovqE _ _ -> [e]
+  AddqE (DerefE r1 i1) (DerefE r2 i2) -> [ MovqE (DerefE r1 i1) (RegE "rax")
+                                         , AddqE (RegE "rax") (DerefE r2 i2) ]
+  AddqE _ _ -> [e]
+  RetqE -> [e]
 
 ------------------------------------------------------------
 -- print-x86
@@ -535,3 +598,4 @@ compileLog e =
   (logOutput "allocateRegisters" allocateRegisters) >>=
   (logOutput "patchInstructions" patchInstructions) >>=
   (logOutput "printX86" printX86)
+
